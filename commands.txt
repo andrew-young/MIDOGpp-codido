@@ -1,3 +1,8 @@
+git clone https://github.com/andrew-young/MIDOGpp-codido.git/
+git commit -m 'update app.py'
+git push origin main
+
+
 sudo docker build -t mitosis .
 sudo docker tag mitosis 230863325152.dkr.ecr.us-east-1.amazonaws.com/jvmumzs9c9cz5_a_ptqzq1lbhwds2zd78m9fceniqsy:latest
 sudo docker push 230863325152.dkr.ecr.us-east-1.amazonaws.com/jvmumzs9c9cz5_a_ptqzq1lbhwds2zd78m9fceniqsy:latest

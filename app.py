@@ -56,7 +56,8 @@ args = parser.parse_args()
 ############################################
 # TODO: add extra args here
 ############################################
-def getinputfile():
+
+def getinputfile():#erturn first file found in inputs folder
 	for folder_name, subfolders, filenames in os.walk('./inputs'):
 		for filename in filenames:
 			file_path=folder_name+"/" + filename 
@@ -93,8 +94,6 @@ else:
 
 test_folder='./images/test/'#os.path.dirname(input_file_path)
 
-
-			
 		
 
 
@@ -118,7 +117,6 @@ def movefiles():
 	print(input_file_path)
 	print(imagelist)
 
-movefiles()
 
 
 def uniquefilenames():
@@ -146,11 +144,14 @@ def uniquefilenames():
 		new_file = os.path.join(folder_name, filename)
 		os.rename(old_file, new_file)
 	return renamedic2
+
+
+movefiles()
 	
 renamedic2=uniquefilenames()
 		
 f2 = open("./outputs/mitosiscount.csv","w")
-
+f2.write("Imagename, Mitotic figure count,Mitotic figure count per fov(field of view="+str(mm2pfov)+"mm^2)\n")
 
 warnings.filterwarnings("ignore")
 mpl.rcParams["figure.dpi"] = 300  # for high resolution figure in notebook
@@ -388,7 +389,7 @@ class Mitosisdetection(DetectionAlgorithm):
 		
 		box=[]
 		col=[]
-		f2.write("Imagename, Mitotic figure count,Mitotic figure count per fov(field of view="+str(areaimage)+"mm^2)")
+		
 		for i, detection in enumerate(result_boxes):
 			# our prediction returns x_1, y_1, x_2, y_2, prediction, score -> transform to center coordinates
 			x_1, y_1, x_2, y_2, prediction, score = detection
@@ -410,7 +411,7 @@ class Mitosisdetection(DetectionAlgorithm):
 		
 		f2.write(ogimagename+", ")
 		f2.write(str(mitosiscount)+", ")
-		f2.write(str(mitosiscount/fovpimage)+", ")
+		f2.write(str(mitosiscount/fovpimage)+"\n")
 		
 		
 		print(mitosiscount)
@@ -453,7 +454,6 @@ def inference(directory):
 			#detection.move_validation_slides(test=True)
 			detection.process()
 		break
-	f2.write("Area per fov: "+str(mm2pfov)+"mm^2\n")
 	f2.close()
 		
 inference('wandb')
@@ -479,7 +479,7 @@ for folder_name, subfolders, filenames in os.walk(test_folder):
 	for filename in filenames:
 		file_path=test_folder + filename 
 		os.unlink(file_path)
-print("sdf")
+
 if args.codido == 'True':
 	import boto3
 	#config = TransferConfig(multipart_chunksize=200000)
@@ -487,4 +487,4 @@ if args.codido == 'True':
 	#s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output, Config=config)
 	s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output)
 
-print("sdfd")
+
