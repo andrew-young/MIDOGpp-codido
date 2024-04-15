@@ -66,7 +66,7 @@ class Codido:
 
 			self.input_folder_path=os.path.join(os.sep, 'app', 'inputs')
 			self.output_folder_path = os.path.join(os.sep, 'app', 'outputs')
-			os.makedirs(input_folder_path, exist_ok=True)
+			os.makedirs(self.input_folder_path, exist_ok=True)
 			os.makedirs(self.output_folder_path, exist_ok=True)
 
 
