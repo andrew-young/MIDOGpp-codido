@@ -43,6 +43,7 @@ import zipfile
 from boto3.s3.transfer import TransferConfig
 import boto3
 import uuid
+import pandas as pd
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", help="input")
@@ -53,114 +54,233 @@ parser.add_argument("--mm2pfov", help="area for mitosis density")
 
 args = parser.parse_args()
 
-############################################
-# TODO: add extra args here
-############################################
-
-def getinputfile():#erturn first file found in inputs folder
-	for folder_name, subfolders, filenames in os.walk('./inputs'):
-		for filename in filenames:
-			file_path=folder_name+"/" + filename 
-			return file_path
-
-#raise Exception("e")
-if args.codido == 'True':
-
-	input_folder_path=os.path.join(os.sep, 'app', 'inputs')
-	output_folder_path = os.path.join(os.sep, 'app', 'outputs')
-	os.makedirs(input_folder_path, exist_ok=True)
-	os.makedirs(output_folder_path, exist_ok=True)
-
-
-	s3 = boto3.client('s3')
-
-	# downloads codido input file into the folder specified by input_folder_path
-	input_file_path = os.path.join(input_folder_path, args.input.split('_SPLIT_')[-1])
-	
-
-	s3.download_file(os.environ['S3_BUCKET'], args.input, input_file_path)
-	
-	mpp=float(args.mpp)
-	mm2pfov=float(args.mm2pfov)
-	if mpp is None:
-		mpp=0.25
-	output_folder_path=output_folder_path
-else:
-	output_folder_path='./outputs'
-	input_file_path = getinputfile()
-	#print(os.listdir("."))
-	mpp=0.25
-	mm2pfov=0.25
-
-test_folder='./images/test/'#os.path.dirname(input_file_path)
 
 		
+class Codido:
+	def __init__(self):
+		self.f2=None
+		self.mitosistotal=0
+		self.mitosiscountlist=[]
+		self.nimages=0
+		if args.codido == 'True':
+
+			self.input_folder_path=os.path.join(os.sep, 'app', 'inputs')
+			self.output_folder_path = os.path.join(os.sep, 'app', 'outputs')
+			os.makedirs(input_folder_path, exist_ok=True)
+			os.makedirs(self.output_folder_path, exist_ok=True)
 
 
+			s3 = boto3.client('s3')
 
-def movefiles():
-	filename=os.path.basename(input_file_path)
-	split=os.path.splitext(filename)
-	extension=split[1]
-	print(extension)
-	if extension==".zip":
-		with zipfile.ZipFile(input_file_path, 'r') as zip_ref:
-			zip_ref.extractall(test_folder)
-		imagelist=[]
-		for folder_name, subfolders, filenames in os.walk(test_folder):
+			# downloads codido input file into the folder specified by input_folder_path
+			self.input_file_path = os.path.join(input_folder_path, args.input.split('_SPLIT_')[-1])
+			
+
+			s3.download_file(os.environ['S3_BUCKET'], args.input, self.input_file_path)
+			
+			self.mpp=float(args.mpp)
+			self.mm2pfov=float(args.mm2pfov)
+			if mpp is None:
+				mpp=0.25
+			#output_folder_path=self.output_folder_path
+		else:
+			self.output_folder_path='./outputs'
+			self.input_file_path = self.getinputfile()
+			#print(os.listdir("."))
+			self.mpp=0.25
+			self.mm2pfov=0.25
+
+		self.test_folder='./images/test/'#os.path.dirname(self.input_file_path)
+	
+	def getinputfile(self):#erturn first file found in inputs folder
+		for folder_name, subfolders, filenames in os.walk('./inputs'):
 			for filename in filenames:
-				imagelist.append(filename)		
-	else:
-		shutil.copyfile(input_file_path,'./images/test/'+filename)	
-		imagelist=[filename]
-
-	print(input_file_path)
-	print(imagelist)
+				file_path=folder_name+"/" + filename 
+				return file_path
 
 
-
-def uniquefilenames():
-	renamedic={}
-	renamedic2={}
-	filei=0;
-	for folder_name, subfolders, filenames in os.walk(test_folder):
-		for filename in filenames:
-			file_path=folder_name+"/" + filename 
-			split=os.path.splitext(filename)
-			extension=split[1]
-			unique_filename = str(uuid.uuid4())+extension
-			renamedic[unique_filename]=filename
-			old_file = os.path.join(folder_name, filename)
-			new_file = os.path.join(folder_name, unique_filename)
-			os.rename(old_file, new_file)
-	for unique_filename in renamedic:
-		filei=filei+1
-		filename=str(filei)+extension
-		renamedic2[filename]=renamedic[unique_filename]
-		split=os.path.splitext(unique_filename)
+	#moves files from input folder to test folder
+	#extracts zip file
+	def movefiles(self):
+		filename=os.path.basename(self.input_file_path)
+		split=os.path.splitext(filename)
 		extension=split[1]
+		print(extension)
+		if extension==".zip":
+			with zipfile.ZipFile(self.input_file_path, 'r') as zip_ref:
+				zip_ref.extractall(self.test_folder)
+			imagelist=[]
+			for folder_name, subfolders, filenames in os.walk(self.test_folder):
+				for filename in filenames:
+					imagelist.append(filename)		
+		else:
+			shutil.copyfile(self.input_file_path,'./images/test/'+filename)	
+			imagelist=[filename]
+			
+
+		print(self.input_file_path)
+		print(imagelist)
+		self.nimages=len(imagelist)
+
+
+	#renames files and return dictionary containing origional filnames
+	def uniquefilenames(self):
+		renamedic={}
+		self.renamedic2={}
+		filei=0;
 		
-		old_file = os.path.join(folder_name, unique_filename)
-		new_file = os.path.join(folder_name, filename)
-		os.rename(old_file, new_file)
-	return renamedic2
+		#rename to unique files names to avoid name clashes
+		for folder_name, subfolders, filenames in os.walk(self.test_folder):
+			for filename in filenames:
+				file_path=folder_name+"/" + filename 
+				split=os.path.splitext(filename)
+				extension=split[1]
+				unique_filename = str(uuid.uuid4())+extension
+				renamedic[unique_filename]=filename
+				old_file = os.path.join(folder_name, filename)
+				new_file = os.path.join(folder_name, unique_filename)
+				os.rename(old_file, new_file)
+				
+		#rename files to numbers as is desired.
+		for unique_filename in renamedic:
+			filei=filei+1
+			filename=str(filei)+extension
+			self.renamedic2[filename]=renamedic[unique_filename]
+			split=os.path.splitext(unique_filename)
+			extension=split[1]
+			
+			old_file = os.path.join(folder_name, unique_filename)
+			new_file = os.path.join(folder_name, filename)
+			os.rename(old_file, new_file)
+		return self.renamedic2
 
+	def process_case(self,result_boxes,input_image_file_path,input_image):
+		imagename=os.path.basename(input_image_file_path)
+		ogimagename=self.renamedic2[imagename]
+		split=os.path.splitext(ogimagename)
+		noextension=split[0]
+		img=input_image
+		width, height = img.GetSize()
+		pixels=width*height
+		areaimage=pixels*self.mpp*self.mpp/1000/1000
+		areafov=self.mm2pfov
+		fovpimage=areaimage/areafov
+		img = SimpleITK.GetArrayFromImage(input_image)
+		img=np.transpose(img,(2,0,1))
+		img = torch.from_numpy(img)
+		
+		box=[]
+		col=[]
+		
+		for i, detection in enumerate(result_boxes):
+			# our prediction returns x_1, y_1, x_2, y_2, prediction, score -> transform to center coordinates
+			x_1, y_1, x_2, y_2, prediction, score = detection
 
-movefiles()
+			# draw bounding box and fill color 
+			#box.append([x_1-5, y_1-5, x_2+5, y_2+5])
+			box.append([x_1-10, y_1-10, x_2+10, y_2+10])
+			col.append((255,0,0))
+			#col.append((0,0,0))
+			
+		box=np.asarray(box)
+		box=box.astype(int)
+		box = torch.tensor(box) 
+		#box = box.unsqueeze(0) 
+		#print(box)
+		img = torchvision.utils.draw_bounding_boxes(img, box, width=10, colors=col,   fill=False)#
+		mitosiscount=len(result_boxes)
+		self.mitosiscountlist.append(mitosiscount)
+		
+		self.f2.write(ogimagename+", ")
+		self.f2.write(str(mitosiscount)+", ")
+		self.f2.write(str(mitosiscount/fovpimage)+"\n")
+		
+		
+		print(mitosiscount)
+		img=img.numpy()
+		img=np.transpose(img,(1,2,0))
+		im=Image.fromarray(img)
+		out_image_path=self.output_folder_path +'/boundingboxes'+noextension+'.png'
+		im.save(out_image_path)
 	
-renamedic2=uniquefilenames()
+	
+	def inference(self,directory):  
+	
+		for root, dirs, files in os.walk(directory):
+			for dir in dirs:
+				with open(os.path.join(directory, dir, "files", "wandb-summary.json"), 'r') as f:
+					data = json.load(f)
+				detection = Mitosisdetection(os.path.join(directory, dir, "files"))
+				detection.codido=self
+				# loads the image(s), applies DL detection model & saves the result
+				print("Evaluating", dir)
+				#detection.move_validation_slides(test=True)
+				detection.process()
+			break
 		
-f2 = open("./outputs/mitosiscount.csv","w")
-f2.write("Imagename, Mitotic figure count,Mitotic figure count per fov(field of view="+str(mm2pfov)+"mm^2)\n")
+	
+	def mitosis_count_averagecsv(self):
+		mitotic_figure_count_average=np.sum(self.mitosiscountlist)/self.nimages
+		mitotic_figure_count_standard_deviation=np.std(self.mitosiscountlist)
+		d = {'﻿number_of_images': [self.nimages], 'mitotic_figure_count_average': [mitotic_figure_count_average],'mitotic_figure_count_standard_deviation':[mitotic_figure_count_standard_deviation]}
+		df = pd.DataFrame(data=d)
+		print(df)
+		df.to_csv(self.output_folder_path+"/mitosis_count_average.csv", index=False)
+	
+	def run(self):
+		
 
-warnings.filterwarnings("ignore")
-mpl.rcParams["figure.dpi"] = 300  # for high resolution figure in notebook
-print("test 3")
-mpl.rcParams["figure.facecolor"] = "white"  # To make sure text is visible in dark mode
-plt.rcParams.update({"font.size": 5})
+
+		self.movefiles()
+			
+		self.renamedic2=self.uniquefilenames()
+				
+		self.f2= open("./outputs/mitosiscount.csv","w")
+		self.f2.write("Imagename, Mitotic figure count,Mitotic figure count per fov(field of view="+str(self.mm2pfov)+"mm^2)\n")
+
+		warnings.filterwarnings("ignore")
+		mpl.rcParams["figure.dpi"] = 300  # for high resolution figure in notebook
+		print("test 3")
+		mpl.rcParams["figure.facecolor"] = "white"  # To make sure text is visible in dark mode
+		plt.rcParams.update({"font.size": 5})
+
+		self.inference('wandb')
+		
+		self.f2.close()
+		self.mitosis_count_averagecsv()
+		
+		# create zip with all the saved outputs
+		zip_name = self.output_folder_path + '.zip'
+		print(zip_name)
+		with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
+			for folder_name, subfolders, filenames in os.walk(self.output_folder_path):
+				for filename in filenames:
+					file_path = os.path.join(folder_name, filename)
+					print('create zip file')
+					print(file_path)
+					print(self.output_folder_path)
+					zip_ref.write(file_path, arcname=os.path.relpath(file_path, self.output_folder_path))
+					print('zip file created')
+
+		file_stats = os.stat(zip_name)
+		print(file_stats.st_size)
+		# upload
+		for folder_name, subfolders, filenames in os.walk(self.test_folder):
+			for filename in filenames:
+				file_path=self.test_folder + filename 
+				os.unlink(file_path)
+
+		if args.codido == 'True':
+			import boto3
+			#config = TransferConfig(multipart_chunksize=200000)
+			s3 = boto3.client('s3')
+			#s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output, Config=config)
+			s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output)
 
 
-print("test 5")
+		
+
+
 
 
 
@@ -300,8 +420,9 @@ class MyMitosisDetection:
 		
 class Mitosisdetection(DetectionAlgorithm):
 	def __init__(self, path):
+		self.codido=None
 		# Read YAML file
-		#self.filei=0
+		
 		with open(os.path.join(path, "config.yaml"), 'r') as stream:
 			self.config = yaml.safe_load(stream)
 		super().__init__(
@@ -368,59 +489,15 @@ class Mitosisdetection(DetectionAlgorithm):
 
 		# Detect and score candidates
 		result_boxes = self.predict(input_image=input_image)
-		imagename=os.path.basename(input_image_file_path)
-		ogimagename=renamedic2[imagename]
-		split=os.path.splitext(ogimagename)
-		noextension=split[0]
-		img=input_image
-		width, height = img.GetSize()
-		pixels=width*height
-		areaimage=pixels*mpp*mpp/1000/1000
-		areafov=mm2pfov
-		fovpimage=areaimage/areafov
-		img = SimpleITK.GetArrayFromImage(input_image)
-		img=np.transpose(img,(2,0,1))
-		img = torch.from_numpy(img)
+
 	
   
 
 		# transform this image to PIL image 
 		
-		
-		box=[]
-		col=[]
-		
-		for i, detection in enumerate(result_boxes):
-			# our prediction returns x_1, y_1, x_2, y_2, prediction, score -> transform to center coordinates
-			x_1, y_1, x_2, y_2, prediction, score = detection
-
-			# draw bounding box and fill color 
-			#box.append([x_1-5, y_1-5, x_2+5, y_2+5])
-			box.append([x_1-10, y_1-10, x_2+10, y_2+10])
-			col.append((255,0,0))
-			#col.append((0,0,0))
-			
-		box=np.asarray(box)
-		box=box.astype(int)
-		box = torch.tensor(box) 
-		#box = box.unsqueeze(0) 
-		#print(box)
-		img = torchvision.utils.draw_bounding_boxes(img, box, width=10, colors=col,   fill=False)#
-		mitosiscount=len(result_boxes)
+		self.codido.process_case(result_boxes,input_image_file_path,input_image)
 		
 		
-		f2.write(ogimagename+", ")
-		f2.write(str(mitosiscount)+", ")
-		f2.write(str(mitosiscount/fovpimage)+"\n")
-		
-		
-		print(mitosiscount)
-		img=img.numpy()
-		img=np.transpose(img,(1,2,0))
-		im=Image.fromarray(img)
-		out_image_path=output_folder_path +'/boundingboxes'+noextension+'.png'
-		im.save(out_image_path)
-		print(out_image_path)
 		# Write resulting candidates to result.json for this case
 		return dict(type="Multiple points", points=None, version={ "major": 1, "minor": 0 })
 
@@ -442,49 +519,10 @@ class Mitosisdetection(DetectionAlgorithm):
 		return result_boxes
 		
 
-def inference(directory):  
-	
-	for root, dirs, files in os.walk(directory):
-		for dir in dirs:
-			with open(os.path.join(directory, dir, "files", "wandb-summary.json"), 'r') as f:
-				data = json.load(f)
-			detection = Mitosisdetection(os.path.join(directory, dir, "files"))
-			# loads the image(s), applies DL detection model & saves the result
-			print("Evaluating", dir)
-			#detection.move_validation_slides(test=True)
-			detection.process()
-		break
-	f2.close()
-		
-inference('wandb')
 
 
-# create zip with all the saved outputs
-zip_name = output_folder_path + '.zip'
-print(zip_name)
-with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
-	for folder_name, subfolders, filenames in os.walk(output_folder_path):
-		for filename in filenames:
-			file_path = os.path.join(folder_name, filename)
-			print('create zip file')
-			print(file_path)
-			print(output_folder_path)
-			zip_ref.write(file_path, arcname=os.path.relpath(file_path, output_folder_path))
-			print('zip file created')
+def main():
+	codido=Codido()
+	codido.run()
 
-file_stats = os.stat(zip_name)
-print(file_stats.st_size)
-# upload
-for folder_name, subfolders, filenames in os.walk(test_folder):
-	for filename in filenames:
-		file_path=test_folder + filename 
-		os.unlink(file_path)
-
-if args.codido == 'True':
-	import boto3
-	#config = TransferConfig(multipart_chunksize=200000)
-	s3 = boto3.client('s3')
-	#s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output, Config=config)
-	s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output)
-
-
+main()
