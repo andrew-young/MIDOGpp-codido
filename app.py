@@ -73,7 +73,7 @@ class Codido:
 			s3 = boto3.client('s3')
 
 			# downloads codido input file into the folder specified by input_folder_path
-			self.input_file_path = os.path.join(input_folder_path, args.input.split('_SPLIT_')[-1])
+			self.input_file_path = os.path.join(self.input_folder_path, args.input.split('_SPLIT_')[-1])
 			
 
 			s3.download_file(os.environ['S3_BUCKET'], args.input, self.input_file_path)
