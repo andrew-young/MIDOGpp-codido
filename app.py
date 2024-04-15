@@ -80,8 +80,6 @@ class Codido:
 			
 			self.mpp=float(args.mpp)
 			self.mm2pfov=float(args.mm2pfov)
-			if mpp is None:
-				mpp=0.25
 			#output_folder_path=self.output_folder_path
 		else:
 			self.output_folder_path='./outputs'
