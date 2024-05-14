@@ -92,7 +92,7 @@ class Codido:
 			self.mm2pfov=0.25
 
 		self.test_folder='./images/test/'#os.path.dirname(self.input_file_path)
-		os.makedirs(self.input_folder_path, exist_ok=True)
+		os.makedirs(self.test_folder, exist_ok=True)
 		self.mitosiscountdic={'Imagename': [], 'Mitotic figure count': [],'Mitotic figure count per fov(field of view='+str(self.mm2pfov)+'mm^2)':[],"Image Area":[]}
 		
 		
@@ -195,7 +195,7 @@ class Codido:
 		return self.renamedic2
 	
 
-	
+	#return tiles of image data incase image is large.
 	def checklargefiles(self,file):
 		sizethreshold=3e7
 		j=None
@@ -209,6 +209,8 @@ class Codido:
 					if w*h/i/i < sizethreshold:
 						j=i
 						break
+			else:
+				j=1
 			if j is None:
 				print("file too large")
 				
