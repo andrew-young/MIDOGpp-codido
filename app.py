@@ -1,7 +1,7 @@
+
+
 import SimpleITK
-from pathlib import Path
-from queue import Queue
-from tqdm import tqdm
+import torch
 import logging
 import warnings
 
@@ -13,37 +13,33 @@ import os
 import cv2
 import shutil
 import joblib
-import matplotlib as mpl
-import matplotlib.pyplot as plt
+#import matplotlib as mpl
+#import matplotlib.pyplot as plt
 import numpy as np
-import torchvision.transforms as transforms
-from utils.detection_helper import create_anchors, process_output, rescale_boxes
-from utils.nms_WSI import  nms, nms_patch
-import os
-import pickle
-import yaml
-from object_detection_fastai.models.RetinaNet import RetinaNet
-from fastai.vision.learner import create_body
-from fastai.vision import models
-from SlideRunner.dataAccess.database import Database
-from pandas import DataFrame
-import torch
-from evalutils import DetectionAlgorithm
-from evalutils.validators import (
-	UniquePathIndicesValidator,
-	UniqueImagesValidator,
-)
-import torchvision.utils
 import json
+
+import pickle
+
+
+
+import openslide
+
+from pandas import DataFrame
+
+
+import torchvision.utils
+
 import shutil
 import argparse
 from PIL import Image
-import boto3
 import zipfile
 from boto3.s3.transfer import TransferConfig
 import boto3
 import uuid
 import pandas as pd
+
+from Mitosisdetection import Mitosisdetection
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", help="input")
@@ -61,6 +57,7 @@ class Codido:
 		self.f2=None
 		self.mitosistotal=0
 		self.mitosiscountlist=[]
+		
 		self.nimages=0
 		if args.codido == 'True':
 
@@ -84,17 +81,23 @@ class Codido:
 		else:
 			self.output_folder_path='./outputs'
 			self.input_file_path = self.getinputfile()
+			if self.input_file_path is None:
+				print("inputs folder empty")
+				return
 			#print(os.listdir("."))
 			self.mpp=0.25
 			self.mm2pfov=0.25
 
 		self.test_folder='./images/test/'#os.path.dirname(self.input_file_path)
-	
-	def getinputfile(self):#erturn first file found in inputs folder
+		self.mitosiscountdic={'Imagename': [], 'Mitotic figure count': [],'Mitotic figure count per fov(field of view='+str(self.mm2pfov)+'mm^2)':[],"Image Area":[]}
+		
+		
+	def getinputfile(self):#return first file found in inputs folder
 		for folder_name, subfolders, filenames in os.walk('./inputs'):
 			for filename in filenames:
 				file_path=folder_name+"/" + filename 
 				return file_path
+		return None
 
 
 	#moves files from input folder to test folder
@@ -121,13 +124,22 @@ class Codido:
 		self.nimages=len(imagelist)
 
 
-	#renames files and return dictionary containing origional filnames
+	def svstopng(self,file_name):
+		img=openslide.OpenSlide(file_name)
+		img=img.read_region((0,0),level=0,size=img.dimensions)
+		out_image_path=self.test_folder + basename+'.png'
+		img.save(out_image_path) #create png file
+		os.remove(self.test_folder + unique_filename) #remove svs file
+		file_name = out_image_path
+		return file_name
+	
+	#renames files and return dictionary containing origional filnames, convert svs files to png
 	def uniquefilenames(self):
-		renamedic={}
-		self.renamedic2={}
-		filei=0;
+		renamedic={}#uuid filnames to unique og filenames
+		self.renamedic2={}#numbered filenames to og filenames.
+		filei=1;
 		
-		#rename to unique files names to avoid name clashes
+		#first rename to unique files names to avoid name clashes
 		for folder_name, subfolders, filenames in os.walk(self.test_folder):
 			for filename in filenames:
 				file_path=folder_name+"/" + filename 
@@ -141,28 +153,80 @@ class Codido:
 				
 		#rename files to numbers as is desired.
 		for unique_filename in renamedic:
-			filei=filei+1
-			filename=str(filei)+extension
-			self.renamedic2[filename]=renamedic[unique_filename]
+			
+
 			split=os.path.splitext(unique_filename)
 			extension=split[1]
-			
+			basename=split[0]
+			print(extension)
 			old_file = os.path.join(folder_name, unique_filename)
-			new_file = os.path.join(folder_name, filename)
-			os.rename(old_file, new_file)
+			
+			if extension==".svs":
+				old_file=svstopng(old_file)
+				extension=".png"
+				
+			tiles=self.checklargefiles(old_file)
+			if len(tiles) >1 and tiles is not None:
+				print("tiles "+str(len(tiles)))
+				for x,y,img in tiles:
+					filename=str(filei)+extension
+					ogname=renamedic[unique_filename]
+					split=os.path.splitext(ogname)
+					extension=split[1]
+					basename=split[0]
+					
+					self.renamedic2[filename]=basename+"_"+str(x)+"_"+str(y)+extension
+					new_file = os.path.join(folder_name, filename)
+					img.save(new_file)
+					
+					filei=filei+1
+				os.unlink(old_file)
+			else:		
+				filename=str(filei)+extension
+				self.renamedic2[filename]=renamedic[unique_filename]
+				new_file = os.path.join(folder_name, filename)
+				os.rename(old_file, new_file)
+				filei=filei+1
+			
 		return self.renamedic2
+	
 
-	def process_case(self,result_boxes,input_image_file_path,input_image):
-		imagename=os.path.basename(input_image_file_path)
-		ogimagename=self.renamedic2[imagename]
-		split=os.path.splitext(ogimagename)
-		noextension=split[0]
-		img=input_image
-		width, height = img.GetSize()
-		pixels=width*height
-		areaimage=pixels*self.mpp*self.mpp/1000/1000
-		areafov=self.mm2pfov
-		fovpimage=areaimage/areafov
+	
+	def checklargefiles(self,file):
+		sizethreshold=3e7
+		j=None
+		with Image.open(file) as img:
+			w,h=img.size
+			print(w*h)
+			
+			if w*h>sizethreshold:
+				
+				for i in range(1,10):
+					if w*h/i/i < sizethreshold:
+						j=i
+						break
+			if j is None:
+				print("file too large")
+				
+			list=[]
+			M=w/j
+			N=h/j
+			#img=img.numpy()
+			print(img.size)
+			img=img.convert("RGB")
+			#data=img.getdata()
+			#img = np.array(data).reshape(w, h, 3)
+			#print(img.size)
+			img=np.array(img)
+			print(img.shape)
+			if j is not None:
+				for x in range(j):
+					for y in range(j):
+						list.append( (x,y, Image.fromarray(img[int(x*M):int(M*(x+1)) , int(y*N):int((y+1)*N),:])   )  )	
+	
+		return list
+	
+	def createboundingboximage(self,result_boxes,imagename,input_image):
 		img = SimpleITK.GetArrayFromImage(input_image)
 		img=np.transpose(img,(2,0,1))
 		img = torch.from_numpy(img)
@@ -183,27 +247,46 @@ class Codido:
 		box=np.asarray(box)
 		box=box.astype(int)
 		box = torch.tensor(box) 
-		#box = box.unsqueeze(0) 
-		#print(box)
 		img = torchvision.utils.draw_bounding_boxes(img, box, width=10, colors=col,   fill=False)#
-		mitosiscount=len(result_boxes)
-		self.mitosiscountlist.append(mitosiscount)
-		
-		self.f2.write(ogimagename+", ")
-		self.f2.write(str(mitosiscount)+", ")
-		self.f2.write(str(mitosiscount/fovpimage)+"\n")
-		
-		
-		print(mitosiscount)
 		img=img.numpy()
 		img=np.transpose(img,(1,2,0))
 		im=Image.fromarray(img)
-		out_image_path=self.output_folder_path +'/boundingboxes'+noextension+'.png'
+		out_image_path=self.output_folder_path +'/boundingboxes'+imagename+'.png'
 		im.save(out_image_path)
+		
+	def countmitotisis(self,result_boxes,imagename,input_image):
+		img=input_image
+		width, height = img.GetSize()
+		pixels=width*height
+		areaimage=pixels*self.mpp*self.mpp/1000/1000
+		areafov=self.mm2pfov
+		fovpimage=areaimage/areafov
+		
+		mitosiscount=len(result_boxes)
+		self.mitosiscountlist.append(mitosiscount)
+
+		self.mitosiscountdic["Imagename"].append(imagename)
+		self.mitosiscountdic["Mitotic figure count"].append(mitosiscount)
+		self.mitosiscountdic["Mitotic figure count per fov(field of view="+str(self.mm2pfov)+"mm^2)"].append(mitosiscount/fovpimage)
+		self.mitosiscountdic["Image Area"].append(areaimage)
+		
+		print(mitosiscount)
+		
+	#called by Mitosisdetection.process_case
+	def process_case(self,result_boxes,input_image_file_path,input_image):
+		imagename=os.path.basename(input_image_file_path)
+		ogimagename=self.renamedic2[imagename]
+		split=os.path.splitext(ogimagename)
+		noextension=split[0]
+		
+		self.createboundingboximage(result_boxes,noextension,input_image)
+		self.countmitotisis(result_boxes,ogimagename,input_image)
+		
+		
 	
-	
+	#run model
 	def inference(self,directory):  
-	
+		#every folder in directory is assumed to contain a model run all of them (should be 1)
 		for root, dirs, files in os.walk(directory):
 			for dir in dirs:
 				with open(os.path.join(directory, dir, "files", "wandb-summary.json"), 'r') as f:
@@ -225,29 +308,31 @@ class Codido:
 		print(df)
 		df.to_csv(self.output_folder_path+"/mitosis_count_average.csv", index=False)
 	
-	def run(self):
+	def mitosis_countcsv(self):
+		df = pd.DataFrame(data=self.mitosiscountdic)
+		print(df)
+		df.to_csv(self.output_folder_path+"/mitosiscount.csv", index=False)
 		
-
-
+	def run(self):
+	
 		self.movefiles()
 			
 		self.renamedic2=self.uniquefilenames()
-				
-		self.f2= open("./outputs/mitosiscount.csv","w")
-		self.f2.write("Imagename, Mitotic figure count,Mitotic figure count per fov(field of view="+str(self.mm2pfov)+"mm^2)\n")
-
+		print(self.renamedic2)
+	
 		warnings.filterwarnings("ignore")
-		mpl.rcParams["figure.dpi"] = 300  # for high resolution figure in notebook
-		print("test 3")
-		mpl.rcParams["figure.facecolor"] = "white"  # To make sure text is visible in dark mode
-		plt.rcParams.update({"font.size": 5})
+		
 
 		self.inference('wandb')
-		
-		self.f2.close()
+	
 		self.mitosis_count_averagecsv()
+		self.mitosis_countcsv()
 		
 		# create zip with all the saved outputs
+		self.uploadfiles()
+		self.cleanup()
+
+	def uploadfiles(self):
 		zip_name = self.output_folder_path + '.zip'
 		print(zip_name)
 		with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
@@ -262,11 +347,8 @@ class Codido:
 
 		file_stats = os.stat(zip_name)
 		print(file_stats.st_size)
-		# upload
-		for folder_name, subfolders, filenames in os.walk(self.test_folder):
-			for filename in filenames:
-				file_path=self.test_folder + filename 
-				os.unlink(file_path)
+		
+	
 
 		if args.codido == 'True':
 			import boto3
@@ -275,249 +357,12 @@ class Codido:
 			#s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output, Config=config)
 			s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output)
 
-
-		
-
-
-
-
-
-class MyMitosisDetection:
-	def __init__(self, path, config, detect_threshold, nms_threshold):
-		with open('statistics_sdata.pickle', 'rb') as handle:
-			statistics = pickle.load(handle)
-		tumortypes = config["data"]["value"]["tumortypes"].split(",")
-		self.mean = np.array(np.mean(np.array([value for key, value in statistics['mean'].items() if tumortypes.__contains__(key)]),axis=(0, 1)), dtype=np.float32)
-		self.std = np.array(np.mean(np.array([value for key, value in statistics['std'].items() if tumortypes.__contains__(key)]),axis=(0, 1)), dtype=np.float32)
-
-		# network parameters
-		self.detect_thresh = detect_threshold
-		self.nms_thresh = nms_threshold
-		encoder = create_body(models.resnet18, True, -2)
-		scales = [float(s) for s in config["retinanet"]["value"]["scales"].split(",")]
-		ratios = [config["retinanet"]["value"]["ratios"]]
-		sizes = [(config["retinanet"]["value"]["sizes"], config["retinanet"]["value"]["sizes"])]
-		self.model = RetinaNet(encoder, n_classes=2, n_anchors=len(scales) * len(ratios),sizes=[size[0] for size in sizes], chs=128, final_bias=-4., n_conv=3)
-		self.path_model = os.path.join(path, "bestmodel.pth")
-		self.size = config["data"]["value"]["patch_size"]
-		self.batchsize = config["data"]["value"]["batch_size"]
-
-		self.anchors = create_anchors(sizes=sizes, ratios=ratios, scales=scales)
-		self.device = torch.device('cpu' if not torch.cuda.is_available() else 'cuda')
-
-	def load_model(self):
-		if torch.cuda.is_available():
-			print("Model loaded on CUDA")
-			self.model.load_state_dict(torch.load(self.path_model)['model'])
-		else:
-			print("Model loaded on CPU")
-			self.model.load_state_dict(torch.load(self.path_model, map_location='cpu')['model'])
-
-		self.model.to(self.device)
-
-		logging.info("Model loaded. Mean: {} ; Std: {}".format(self.mean, self.std))
-		return True
-
-	def process_image(self, input_image):
-		self.model.eval()
-		n_patches = 0
-		queue_patches = Queue()
-		img_dimensions = input_image.shape
-
-		image_boxes = []
-		# create overlapping patches for the whole image
-		for x in np.arange(0, img_dimensions[1], int(0.9 * self.size)):
-			for y in np.arange(0, img_dimensions[0], int(0.9 * self.size)):
-				# last patch shall reach just up to the last pixel
-				if (x+self.size>img_dimensions[1]):
-					x = img_dimensions[1]-512
-
-				if (y+self.size>img_dimensions[0]):
-					y = img_dimensions[0]-512
-
-				queue_patches.put((0, int(x), int(y), input_image))
-				n_patches += 1
-
-
-		n_batches = int(np.ceil(n_patches / self.batchsize))
-		for _ in tqdm(range(n_batches), desc='Processing an image'):
-
-			torch_batch, batch_x, batch_y = self.get_batch(queue_patches)
-			class_pred_batch, bbox_pred_batch, _ = self.model(torch_batch)
-
-			for b in range(torch_batch.shape[0]):
-				x_real = batch_x[b]
-				y_real = batch_y[b]
-
-				cur_class_pred = class_pred_batch[b]
-				cur_bbox_pred = bbox_pred_batch[b]
-				cur_patch_boxes = self.postprocess_patch(cur_bbox_pred, cur_class_pred, x_real, y_real)
-				if len(cur_patch_boxes) > 0:
-					image_boxes += cur_patch_boxes
-
-		return np.array(image_boxes)
-
-	def get_batch(self, queue_patches):
-		batch_images = np.zeros((self.batchsize, 3, self.size, self.size))
-		batch_x = np.zeros(self.batchsize, dtype=int)
-		batch_y = np.zeros(self.batchsize, dtype=int)
-		for i_batch in range(self.batchsize):
-			if queue_patches.qsize() > 0:
-				status, batch_x[i_batch], batch_y[i_batch], image = queue_patches.get()
-				x_start, y_start = int(batch_x[i_batch]), int(batch_y[i_batch])
-
-				cur_patch = image[y_start:y_start+self.size, x_start:x_start+self.size] / 255.
-				batch_images[i_batch] = cur_patch.transpose(2, 0, 1)[0:3]
-			else:
-				batch_images = batch_images[:i_batch]
-				batch_x = batch_x[:i_batch]
-				batch_y = batch_y[:i_batch]
-				break
-		torch_batch = torch.from_numpy(batch_images.astype(np.float32, copy=False)).to(self.device)
-		for p in range(torch_batch.shape[0]):
-			torch_batch[p] = transforms.Normalize(self.mean, self.std)(torch_batch[p])
-		return torch_batch, batch_x, batch_y
-
-	def postprocess_patch(self, cur_bbox_pred, cur_class_pred, x_real, y_real):
-		cur_patch_boxes = []
-
-		for clas_pred, bbox_pred in zip(cur_class_pred[None, :, :], cur_bbox_pred[None, :, :], ):
-			modelOutput = process_output(clas_pred, bbox_pred, self.anchors, self.detect_thresh)
-			bbox_pred, scores, preds = [modelOutput[x] for x in ['bbox_pred', 'scores', 'preds']]
-
-			if bbox_pred is not None:
-				# Perform nms per patch to reduce computation effort for the whole image (optional)
-				to_keep = nms_patch(bbox_pred, scores, self.nms_thresh)
-				bbox_pred, preds, scores = bbox_pred[to_keep].cpu(), preds[to_keep].cpu(), scores[
-					to_keep].cpu()
-
-				t_sz = torch.Tensor([[self.size, self.size]]).float()
-
-				bbox_pred[:, :2] = bbox_pred[:, :2] - bbox_pred[:, 2:] / 2
-				bbox_pred = rescale_boxes(bbox_pred, t_sz)
-
-				for box, pred, score in zip(bbox_pred, preds, scores):
-					y_box, x_box = box[:2]
-					h, w = box[2:4]
-
-					cur_patch_boxes.append(
-						np.array([x_box + x_real, y_box + y_real,
-								  x_box + x_real + w, y_box + y_real + h,
-								  pred, score]))
-
-		return cur_patch_boxes
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-class Mitosisdetection(DetectionAlgorithm):
-	def __init__(self, path):
-		self.codido=None
-		# Read YAML file
-		
-		with open(os.path.join(path, "config.yaml"), 'r') as stream:
-			self.config = yaml.safe_load(stream)
-		super().__init__(
-			validators=dict(
-				input_image=(
-					UniqueImagesValidator(),
-					UniquePathIndicesValidator(),
-				)
-			),
-			input_path = Path(os.path.join(self.config['files']['value']['image_path'],"test")),
-			output_file = Path(os.path.join(path, "mitotic-figures.json"))
-		)
-		self.detect_thresh = 0.5
-		self.nms_thresh = 0.4
-
-		self.database = Database()
-		#self.database.open(Path("databases/MultiDomainMitoticFigureDataset.sqlite"))
-		self.database.open(Path("databases/MIDOG++.sqlite"))
-		#self.uids = dict(self.database.execute('SELECT filename,uid from Slides').fetchall())
-		self.gts = {}
-
-		#####################################################################################
-		# Note: As of MIDOG 2022, the format has changed to enable calculation of the mAP. ##
-		#####################################################################################
-		# Use NMS threshold as detection threshold for now so we can forward sub-threshold detections to the calculations of the mAP
-
-		self.md = MyMitosisDetection(path, self.config, self.detect_thresh, self.nms_thresh)
-		load_success = self.md.load_model()
-		if load_success:
-			print("Successfully loaded model.")
-
-	def move_validation_slides(self, test):
-		for slide in json.loads(self.config['x-validation']['valid']):
-			if test:
-				os.rename(os.path.join(self.config['files']['value']['image_path'], slide),
-						  os.path.join(self._input_path, slide))
-			else:
-				os.rename(os.path.join(self._input_path, slide),
-						  os.path.join(self.config['files']['value']['image_path'], slide))
-
-	def gt_annotations(self, slideId, input_image):
-		bboxes = []
-		self.database.loadIntoMemory(slideId)
-		for id, annotation in self.database.annotations.items():
-			if len(annotation.labels) != 0 and annotation.deleted != 1:
-				label = annotation.agreedClass
-				if label == 1:  # labeled as MF
-					coords = np.mean(annotation.coordinates, axis=0)
-					world_coords = input_image.TransformContinuousIndexToPhysicalPoint([c for c in coords])
-					bboxes.append([*tuple(world_coords), 0])
-		return bboxes
-
-	def save(self):
-		with open(str(self._output_file), "w") as f:
-			json.dump(dict(zip([c[1].loc['path'].name for c in self._cases['input_image'].iterrows()], self._case_results)), f)
-
-	def process_case(self, *, idx, case):
-		# Load and test the image for this case
-		input_image, input_image_file_path = self._load_input_image(case=case)
-		print(input_image_file_path)
-		#print(type(input_image))
-		#self.filei=self.filei+1
-		#self.gts[input_image_file_path.name] = self.gt_annotations(self.uids[input_image_file_path.name], input_image)
-
-		# Detect and score candidates
-		result_boxes = self.predict(input_image=input_image)
-
-	
-  
-
-		# transform this image to PIL image 
-		
-		self.codido.process_case(result_boxes,input_image_file_path,input_image)
-		
-		
-		# Write resulting candidates to result.json for this case
-		return dict(type="Multiple points", points=None, version={ "major": 1, "minor": 0 })
-
-	def predict(self, *, input_image: SimpleITK.Image) -> DataFrame:
-		# Extract a numpy array with image data from the SimpleITK Image
-		#print(input_image)
-
-		candidates = list()
-		classnames = ['non-mitotic figure', 'mitotic figure']
-		
-		image_data = SimpleITK.GetArrayFromImage(input_image)
-		#print(input_image)
-		with torch.no_grad():
-			result_boxes = self.md.process_image(image_data)
-
-		# perform nms per image:
-		print("All computations done, nms as a last step")
-		result_boxes = nms(result_boxes, self.nms_thresh)
-		return result_boxes
-		
-
-
+	def cleanup(self):
+		# delete files moved from input folder to test folder
+		for folder_name, subfolders, filenames in os.walk(self.test_folder):
+			for filename in filenames:
+				file_path=self.test_folder + filename 
+				os.unlink(file_path)
 
 def main():
 	codido=Codido()
