@@ -80,7 +80,10 @@ class Codido:
 			#output_folder_path=self.output_folder_path
 		else:
 			self.output_folder_path='./outputs'
+			self.input_folder_path='./inputs'
 			self.input_file_path = self.getinputfile()
+			os.makedirs(self.input_folder_path, exist_ok=True)
+			os.makedirs(self.output_folder_path, exist_ok=True)
 			if self.input_file_path is None:
 				print("inputs folder empty")
 				return
@@ -89,6 +92,7 @@ class Codido:
 			self.mm2pfov=0.25
 
 		self.test_folder='./images/test/'#os.path.dirname(self.input_file_path)
+		os.makedirs(self.input_folder_path, exist_ok=True)
 		self.mitosiscountdic={'Imagename': [], 'Mitotic figure count': [],'Mitotic figure count per fov(field of view='+str(self.mm2pfov)+'mm^2)':[],"Image Area":[]}
 		
 		
