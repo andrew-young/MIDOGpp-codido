@@ -4,7 +4,7 @@ import SimpleITK
 import torch
 import logging
 import warnings
-
+import math
 
 import argparse
 import zipfile
@@ -170,6 +170,7 @@ class Codido:
 				extension=".png"
 				
 			tiles=self.checklargefiles(old_file)
+			print(str(len(tiles))+" tiles")
 			if len(tiles) >1 and tiles is not None:
 				print("tiles "+str(len(tiles)))
 				for x,y,img in tiles:
@@ -202,33 +203,29 @@ class Codido:
 		with Image.open(file) as img:
 			w,h=img.size
 			print(w*h)
-			
-			if w*h>sizethreshold:
-				
-				for i in range(1,10):
-					if w*h/i/i < sizethreshold:
-						j=i
-						break
-			else:
-				j=1
-			if j is None:
-				print("file too large")
-				
 			list=[]
-			M=w/j
-			N=h/j
-			#img=img.numpy()
-			print(img.size)
-			img=img.convert("RGB")
-			#data=img.getdata()
-			#img = np.array(data).reshape(w, h, 3)
-			#print(img.size)
-			img=np.array(img)
-			print(img.shape)
-			if j is not None:
-				for x in range(j):
-					for y in range(j):
-						list.append( (x,y, Image.fromarray(img[int(x*M):int(M*(x+1)) , int(y*N):int((y+1)*N),:])   )  )	
+			j=math.ceil(math.sqrt(w*h/sizethreshold))
+			if j>1:
+				print("image too large, cutting into tiles")
+				print (str(j*j)+" tiles")
+			#if j>10:
+			#	print("file too large, too many tiles needed (>100)")
+				
+			
+				M=w/j
+				N=h/j
+				#img=img.numpy()
+				print(img.size)
+				img=img.convert("RGB")
+				#data=img.getdata()
+				#img = np.array(data).reshape(w, h, 3)
+				#print(img.size)
+				img=np.array(img)
+				print(img.shape)
+				if j is not None:
+					for x in range(j):
+						for y in range(j):
+							list.append( (x,y, Image.fromarray(img[int(x*M):int(M*(x+1)) , int(y*N):int((y+1)*N),:])   )  )	
 	
 		return list
 	
@@ -320,7 +317,8 @@ class Codido:
 		df.to_csv(self.output_folder_path+"/mitosiscount.csv", index=False)
 		
 	def run(self):
-	
+		self.cleanupoutput()
+		self.cleanupimages()
 		self.movefiles()
 			
 		self.renamedic2=self.uniquefilenames()
@@ -336,7 +334,7 @@ class Codido:
 		
 		# create zip with all the saved outputs
 		self.uploadfiles()
-		self.cleanup()
+		self.cleanupimages()
 
 	def uploadfiles(self):
 		zip_name = self.output_folder_path + '.zip'
@@ -363,11 +361,18 @@ class Codido:
 			#s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output, Config=config)
 			s3.upload_file(zip_name, os.environ['S3_BUCKET'], args.output)
 
-	def cleanup(self):
+	def cleanupimages(self):
 		# delete files moved from input folder to test folder
 		for folder_name, subfolders, filenames in os.walk(self.test_folder):
 			for filename in filenames:
 				file_path=self.test_folder + filename 
+				os.unlink(file_path)
+				
+	def cleanupoutput(self):
+		# delete files moved from input folder to output folder
+		for folder_name, subfolders, filenames in os.walk(self.output_folder_path):
+			for filename in filenames:
+				file_path=self.output_folder_path +"/"+ filename 
 				os.unlink(file_path)
 
 def main():
