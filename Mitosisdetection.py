@@ -85,7 +85,6 @@ class Mitosisdetection(DetectionAlgorithm):
 
 		# Detect and score candidates
 		result_boxes = self.predict(input_image=input_image)
-
 	
   
 

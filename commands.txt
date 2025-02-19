@@ -1,9 +1,32 @@
 git clone https://github.com/andrew-young/MIDOGpp-codido.git/
+git init
+git add app.py
 git commit -m 'update app.py'
 git push origin main
 
 
 sudo docker build -t mitosis .
+sudo docker run -it --rm --name mycontainer mitosis
 sudo docker tag mitosis 230863325152.dkr.ecr.us-east-1.amazonaws.com/jvmumzs9c9cz5_a_ptqzq1lbhwds2zd78m9fceniqsy:latest
 sudo docker push 230863325152.dkr.ecr.us-east-1.amazonaws.com/jvmumzs9c9cz5_a_ptqzq1lbhwds2zd78m9fceniqsy:latest
-sudo docker run -it --rm --name mycontainer mitosis
+
+/home/andrew/docker/MIDOGpp-codido/localinputs/1.png
+
+
+
+sudo docker tag mitosis 230863325152.dkr.ecr.us-east-1.amazonaws.com/fhten5ieqslscao5jfrghntdrou6dkfqj9jxtbwjeoi:latest
+sudo docker push 230863325152.dkr.ecr.us-east-1.amazonaws.com/fhten5ieqslscao5jfrghntdrou6dkfqj9jxtbwjeoi:latest
+
+
+conda remove -n midog --all
+conda create -n midog python=3.8 anaconda
+conda activate midog
+python3 -m pip install --upgrade pip
+pip install torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio -f https://download.pytorch.org/whl/torch_stable.html
+
+pip install evalutils==0.3.1 fastai==1.0.61 hydra-core==1.3.2 numpy==1.19.5 object_detection_fastai==0.0.10 omegaconf==2.2.3 opencv_python_headless==4.5.5.64 openslide_python==1.1.2 pandas==1.1.2 Pillow==9.4.0 PyYAML==6.0.1 scikit_learn==1.0 SimpleITK==2.2.1 pyqt5==5.15.10 SlideRunner==2.0 tqdm==4.49.0 opencv-python==4.5.1.48 pytest-shutil==1.8.1 boto3==1.34.69 
+
+
+SimpleITK==2.4.1
+
+git remote set-url origin https://github.com/andrew-young/MIDOGpp-codido.git/

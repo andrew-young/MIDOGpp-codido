@@ -13,6 +13,7 @@ RUN apt-get install build-essential -y
 RUN apt-get clean
 
 
+
 RUN python3.8 -m venv /venv
 ENV PATH=/venv/bin:$PATH
 
@@ -37,14 +38,21 @@ RUN pip install SimpleITK==2.2.1
 RUN python3 -m pip install --upgrade pip
 RUN python3 -m pip install pyqt5
 RUN pip install SlideRunner==2.0
-RUN pip install torch==1.8.1+cu111 torchvision==0.9.1+cu111 torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
+RUN pip install torch==2.1.0+cu118 torchvision==0.16.0+cu118 torchaudio -f https://download.pytorch.org/whl/torch_stable.html
 RUN pip install tqdm==4.49.0
 RUN pip install opencv-python==4.5.1.48
 RUN pip install pytest-shutil
-RUN pip install pip install boto3
+RUN pip install boto3==1.34.69
+#RUN pip install nibabel#not needed
+
+RUN apt-get update && \
+    apt-get install -y openjdk-8-jdk && \
+    apt-get install -y ant && \
+    apt-get clean;
 
 WORKDIR /app
 COPY . .
 #COPY "./python.py" .
-ENTRYPOINT ["python3", "app.py"]
-CMD ["--codido", "False"]
+
+#ENTRYPOINT  ["bash","entrypoint.sh"]
+ENTRYPOINT  ["python3","app.py"]
